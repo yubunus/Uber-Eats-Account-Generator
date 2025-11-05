@@ -7,14 +7,9 @@ by @yubunus on discord and telegram - nuunuu1923@gmail.com
 
 This project was initially built for my personal education, as I was studying mobile requests using mitmproxy, and python requests and automation vs a bigger corporation with higher end security and a multi-step authentication process. That being said, this project is not intended to be used whatsoever as it is against Ubers TOS, and it is purely and only for educational purposes.
 
-## Latest Update V 1.7
+## IMPORTANT
 
-- Added multi-device registration support(switch from iphone/android)
-- Updated device data and headers to use latest phones: Iphone 17 & Google Pixel 9 Pro
-- Added option to automatically save cookies and device data upon registration
-- Option to automatically apply a promo code upon registration
-
-Hotmail007's imap.zmailservice.com is currently down. Hotmail otp grabber will not work. Please manually enter otp's for the time being.
+Due to security and abuse prevention concerns, the modern updated version of this code which produces fully undetectable accounts is not available to be open sourced for free, as well as other custom variations with more features. If you are interested in purchasing a custom variation, please contact me on discord or telegram.
 
 ## 📋 Table of Contents
 
