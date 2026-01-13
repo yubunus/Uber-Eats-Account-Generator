@@ -1337,19 +1337,27 @@ async def process_single_account(config: dict, idx: int, total: int, proxies_lis
         }
 
         # save local data
-        with open('genned_accounts.json', 'r+') as f:
-            data = json.load(f)
-            data['accounts'].append(account_info)
-            f.seek(0)
-            f.truncate()
-            json.dump(data, f, indent=4)
+        if config.get('app_variant') == 'ubereats':
+            with open('genned/genned_accounts.json', 'r+') as f:
+                data = json.load(f)
+                data['accounts'].append(account_info)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=4)
+        elif config.get('app_variant') == 'postmates':
+            with open('genned/postmates_genned.json', 'r+') as f:
+                data = json.load(f)
+                data['accounts'].append(account_info)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=4)
 
         # save data for production
         account_info['auth_token'] = generator.auth_token
         account_info['refresh_token'] = generator.refresh_token
         account_info['cookies'] = generator.cookies
 
-        with open('genned_accounts_production.json', 'r+') as f:
+        with open('genned/genned_accounts_production.json', 'r+') as f:
             data = json.load(f)
             data['accounts'].append(account_info)
             f.seek(0)
