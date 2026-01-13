@@ -1,25 +1,17 @@
 {
-  "device": "android",
-  "proxy_enabled": false,
-  "cycle_proxies": false,
+  "app_variant": "ubereats",
+  "proxies_enabled": true,
   "auto_get_otp": true,
-  "save_info": {
-    "cookies": false,
-    "device_data": false,
-    "account_info": true
-  },
+  "sleep": 3,
+  "hotmail_client_key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "promos": {
-    "auto_apply": false,
-    "promo_code": "promo_code_here"
+    "apply_promo": true,
+    "promo_code": "xxxxxxxxxx"
   },
   "imap": {
-    "username": "your_email@gmail.com",
-    "password": "your_app_password",
+    "username": "mygmail@gmail.com",
+    "password": "my app password xxxx xxxx xxxx xxxx",
     "server": "imap.gmail.com",
-    "domains": [
-      "yourdomain.com",
-      "anotherdomain.com",
-      "<- MULTIPLE DOMAINS OPTIONAL"
-    ]
+    "domains": ["mydomain1.com", "mydomain2.com", "etc"]
   }
 }

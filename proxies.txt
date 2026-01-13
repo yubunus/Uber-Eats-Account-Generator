@@ -1,2 +1,6 @@
+proxies here
+user:pass:ip:port
+ip:port:user:pass
 user:pass@ip:port
-ip:port
+http://user:pass@ip:port
+etc

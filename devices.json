@@ -1,0 +1,137 @@
+{
+  "devices": [
+    {
+      "brand": "Samsung",
+      "phone_name": "Galaxy S22 (base)",
+      "model": "SM-S901",
+      "height": 146,
+      "width": 71,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-S901U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Samsung",
+      "phone_name": "Galaxy S23 (base)",
+      "model": "SM-S911",
+      "height": 146,
+      "width": 71,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-S911U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Samsung",
+      "phone_name": "Galaxy S24 (base)",
+      "model": "SM-S921",
+      "height": 147,
+      "width": 71,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-S921U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Samsung",
+      "phone_name": "Galaxy S25 (base)",
+      "model": "SM-S931",
+      "height": 147,
+      "width": 71,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-S931U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Samsung",
+      "phone_name": "Galaxy S25 Ultra",
+      "model": "SM-S938",
+      "height": 162,
+      "width": 79,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; SM-S938U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+
+    {
+      "brand": "OnePlus",
+      "phone_name": "OnePlus 11",
+      "model": "CPH2449",
+      "height": 163,
+      "width": 74,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; CPH2449) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "OnePlus",
+      "phone_name": "OnePlus 13",
+      "model": "CPH2581",
+      "height": 163,
+      "width": 77,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; CPH2581) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+
+    {
+      "brand": "Motorola",
+      "phone_name": "motorola edge 50 ultra",
+      "model": "XT2401",
+      "height": 161,
+      "width": 72,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; XT2401-1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Motorola",
+      "phone_name": "motorola edge 50 pro",
+      "model": "XT2403",
+      "height": 161,
+      "width": 72,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; XT2403-2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Motorola",
+      "phone_name": "motorola razr ultra 2025",
+      "model": "XT2451",
+      "height": 172,
+      "width": 74,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; XT2451-3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Motorola",
+      "phone_name": "ThinkPhone 25",
+      "model": "XT2431",
+      "height": 159,
+      "width": 74,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; XT2431-1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+
+    {
+      "brand": "Xiaomi",
+      "phone_name": "Xiaomi 15",
+      "model": "24129PN74G",
+      "height": 152,
+      "width": 71,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; 24129PN74G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    },
+    {
+      "brand": "Xiaomi",
+      "phone_name": "Xiaomi 15 Ultra",
+      "model": "24031PN0DC",
+      "height": 161,
+      "width": 75,
+      "os_latest": "16",
+      "user_agent": "Mozilla/5.0 (Linux; Android 16; 24031PN0DC) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.102 Mobile Safari/537.36",
+      "cpuAbi": ", arm64-v8a"
+    }
+  ]
+}

@@ -1,506 +1,538 @@
-"""
-Uber Eats Account Generator
-by @yubunus on discord and telegram
-
-WARNING: This code is for educational purposes only.
-Do not use for actual account creation or unauthorized activities.
-"""
-
 import json
 import uuid
 import random
 import asyncio
-import time
-from typing import Dict, Optional, Tuple, List
-from pathlib import Path
-from curl_cffi import requests
-import secrets
+import os
+from typing import Optional, Tuple, Dict, Any
+from datetime import datetime
+from urllib.parse import quote
 
+from engine.utils import RequestHandler
+from engine.account_manager import AccountManager
 from otp import EmailOTPExtractor, IMAPClient
+from otp_hotmail import HotmailClient, EmailOTPExtractor as HotmailEmailOTPExtractor, BannedAccountException
+from device import DeviceProfile
 
-
-ENDPOINTS = {
-    "submit_form": "https://auth.uber.com/v2/submit-form",
-    "submit_form_geo": "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
-    "apply_promo_code": "https://cn-phx2.cfe.uber.com/rt/delivery/v1/consumer/apply-and-get-savings"
-}
 
 FIRST_NAMES = [
-    "James", "Mary", "John", "Patricia", "Robert", "Jennifer",
-    "Michael", "Linda", "William", "Elizabeth", "David", "Barbara",
-    "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah",
-    "Charles", "Karen", "Christopher", "Nancy", "Daniel", "Lisa"
+    "Alexander", "Emma", "Benjamin", "Olivia", "Samuel", "Sophia",
+    "Nathan", "Isabella", "Ethan", "Mia", "Lucas", "Charlotte",
+    "Mason", "Amelia", "Logan", "Harper", "Jacob", "Evelyn",
+    "Owen", "Abigail", "Sebastian", "Emily", "Henry", "Ella"
 ]
 
 LAST_NAMES = [
-    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia",
-    "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez",
-    "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore",
-    "Jackson", "Martin", "Lee", "Perez", "Thompson", "White"
+    "Campbell", "Mitchell", "Roberts", "Carter", "Phillips", "Evans",
+    "Turner", "Torres", "Parker", "Collins", "Edwards", "Stewart",
+    "Sanchez", "Morris", "Rogers", "Reed", "Cook", "Morgan",
+    "Bell", "Murphy", "Bailey", "Rivera", "Cooper", "Richardson"
 ]
 
 
-def generate_device_info():
-    with open('config.json', 'r') as f:
-        chosen_device = json.load(f)['device']
-
-    BATTERY_STATUSES = [
-        "charging",
-        "discharging"
-    ]
-    android_id = secrets.token_hex(8)
-
-    shared_info = {
-        "batteryLevel": 1.0,
-        "batteryStatus": random.choice(BATTERY_STATUSES),
-        "carrier": "",
-        "carrierMcc": "",
-        "carrierMnc": "",
-        "course": 0.0,
-        "deviceAltitude": 0.0,
-        "deviceLatitude": 0.0,
-        "deviceLongitude": 0.0,
-        "emulator": False,
-        "horizontalAccuracy": 0.0,
-        "ipAddress": f"{random.randint(10, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(0, 255)}",
-        "libCount": random.randint(600, 1000),
-        "locationServiceEnabled": False,
-        "mockGpsOn": False,
-        "rooted": False,
-        "sourceApp": "eats",
-        "specVersion": "2.0",
-        "speed": 0.0,
-        "systemTimeZone": "America/New_York",
-        "unknownItems": {"a": []},
-        "version": "6.294.10000",
-        "versionChecksum": str(uuid.uuid4()).upper(),
-        "verticalAccuracy": 0.0,
-        "wifiConnected": True
-    }
-
-    ios_info = {
-        "device_name": "iPhone",
-        "device_os_name": "iOS",
-        "device_os_version": "26.0",
-        "device_model": "iPhone21,4",
-        "env_id": uuid.uuid4().hex,
-        "env_checksum": str(uuid.uuid4()).upper(),
-        "device_ids": {
-        "advertiserId": str(uuid.uuid4()),
-        "uberId": str(uuid.uuid4()).upper(),
-        "perfId": str(uuid.uuid4()).upper(),
-        "vendorId": str(uuid.uuid4()).upper()
-        },
-        "epoch": time.time() * 1000,
-    }
-
-    android_info = {
-        "deviceModel": "Pixel 9 Pro",
-        "deviceOsName": "Android",
-        "deviceOsVersion": "16",
-        "cpuAbi": "arm64-v8a, armeabi-v7a, armeabi",
-        "androidId": android_id,
-        "deviceIds": {
-            "androidId": android_id,
-            "appDeviceId": str(uuid.uuid4()),
-            "drmId": str(uuid.uuid4()).upper(),
-            "googleAdvertisingId": str(uuid.uuid4()).upper(),
-            "installationUuid": str(uuid.uuid4()).upper(),
-            "perfId": str(uuid.uuid4()).upper(),
-            "udid": str(uuid.uuid4()).upper(),
-            "unknownItems": {"a": []}
-        },
-        "epoch": {"value": time.time() * 1000},
-    }
-
-    ios_device_data = {
-        **shared_info,
-        **ios_info
-    }
-
-    android_device_data = {
-        **shared_info,
-        **android_info
-    }
-
-    return ios_device_data if chosen_device == "ios" else android_device_data
-
-
-class ProxyManager:
-    def __init__(self, proxy_file: str = "proxies.txt", cycle: bool = False):
-        self.proxy_file = proxy_file
-        self.cycle = cycle
-        self.proxies: List[str] = []
-        self.current_index = 0
-
-    def load_proxies(self) -> bool:
-        proxy_path = Path(self.proxy_file)
-        if not proxy_path.exists():
-            return False
-
-        content = proxy_path.read_text().strip()
-        if not content:
-            return False
-
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
-        self.proxies = [self._parse_proxy(line) for line in lines]
-        return len(self.proxies) > 0
-
-    def _parse_proxy(self, line: str) -> str:
-        if line.startswith('http://') or line.startswith('https://'):
-            return line
-
-        parts = line.split(':')
-
-        if '@' in line:
-            if len(parts) == 2:
-                auth, host_port = line.split('@')
-                return f"http://{auth}@{host_port}"
-            return f"http://{line}"
-
-        if len(parts) == 4:
-            user, password, ip, port = parts
-            return f"http://{user}:{password}@{ip}:{port}"
-        elif len(parts) == 2:
-            ip, port = parts
-            return f"http://{ip}:{port}"
-
-        return f"http://{line}"
-
-    def get_proxy(self) -> Optional[str]:
-        if not self.proxies:
-            return None
-
-        if self.cycle:
-            proxy = self.proxies[self.current_index]
-            self.current_index = (self.current_index + 1) % len(self.proxies)
-            return proxy
-        else:
-            return random.choice(self.proxies)
-
-
-class RequestHandler:
-    def __init__(self, proxy_manager: Optional[ProxyManager] = None):
-        self.proxy_manager = proxy_manager
-        self.session = requests.Session()
-
-    def reset_session(self):
-        self.session = requests.Session()
-
-    async def post(self, name: str, url: str, headers: Dict, data: Dict) -> Optional[requests.Response]:
-        proxies = None
-        if self.proxy_manager:
-            proxy = self.proxy_manager.get_proxy()
-            if proxy:
-                proxies = {'http': proxy, 'https': proxy}
-
-        try:
-            response = self.session.post(
-                url,
-                headers=headers,
-                json=data,
-                proxies=proxies,
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                print(f'[✓] {name} request successful')
-                return response
-            else:
-                print(f'[✗] {name} failed: {response.status_code}')
-                print(f'    Response: {response.text[:200]}...')
-                return None
-
-        except Exception as e:
-            print(f"[!] Request error in {name}: {e}")
-            return None
-
-
 class AccountGenerator:
-    def __init__(self, config_path: str = "config.json"):
-        self.config = self._load_config(config_path)
-        self.proxy_manager = self._init_proxy_manager()
-        self.request_handler = RequestHandler(self.proxy_manager)
-        self.device_info = generate_device_info()
+    def __init__(self, config: dict = None, assigned_proxy: str = None):
+        self.config = config or {}
+        self.request_handler = RequestHandler(config, assigned_proxy=assigned_proxy)
+        self.device = DeviceProfile(self.request_handler)
 
-    def _load_config(self, config_path: str) -> Dict:
-        try:
-            with open(config_path, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            print("[!] Config file not found, using defaults")
-            return {"proxy_enabled": False, "cycle_proxies": False}
+    async def get_session(self):
+        self.request_handler.reset_session()
 
-    def _init_proxy_manager(self) -> Optional[ProxyManager]:
-        # Only use proxies if proxy_enabled is True
-        if not self.config.get('proxy_enabled', False):
-            return None
-
-        # Ignore cycle_proxies setting if proxy_enabled is False
-        proxy_manager = ProxyManager(cycle=self.config.get('cycle_proxies', False))
-        if not proxy_manager.load_proxies():
-            print("[!] Proxy enabled but no proxies found in proxies.txt")
-            raise FileNotFoundError("Proxies enabled but proxies.txt is empty or missing")
-
-        print(f"[✓] Loaded {len(proxy_manager.proxies)} proxies")
-        return proxy_manager
-
-    def generate_user_info(self, domain: str) -> Tuple[str, str]:
-        first_name = random.choice(FIRST_NAMES)
-        last_name = random.choice(LAST_NAMES)
-        name = f"{first_name} {last_name}"
-        email = f"{first_name.lower()}{last_name.lower()}{random.randint(1000, 9999)}@{domain}"
-        return email, name
-
-    def _get_user_agent(self) -> str:
-        device = self.config.get('device', 'android').lower()
-        if device == 'ios':
-            return "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
-        else:
-            return "Mozilla/5.0 (Linux; Android 16; Pixel 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36"
-
-    def _get_headers(self) -> Dict:
-        client_app_version = self.device_info.get('version', '6.294.10000')
-        return {
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Content-Type": "application/json",
-            "Host": "cn-geo1.uber.com",
-            "Origin": "https://auth.uber.com",
-            "Referer": "https://auth.uber.com/",
-            "Sec-Ch-Ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\", \"Google Chrome\";v=\"132\"",
-            "Sec-Ch-Ua-Mobile": "?1",
-            "Sec-Ch-Ua-Platform": "\"Android\"",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "User-Agent": self._get_user_agent(),
-            "Via": "1.1 martian-a6a2b0967dba8230c0eb",
-            "X-Uber-Analytics-Session-Id": "ecf13d6e-caa1-4848-9cc8-deb332d3212e",
-            "X-Uber-App-Device-Id": "cea7e57f-cf80-397c-909c-241a9384b974",
-            "X-Uber-App-Variant": "ubereats",
-            "X-Uber-Client-Id": "com.ubercab.eats",
-            "X-Uber-Client-Name": "eats",
-            "X-Uber-Client-Version": client_app_version,
-            "X-Uber-Device-Udid": "248e7351-7757-40ce-b63d-c931d5ea8e54",
+        # upsert device 1 task 
+        headers = {
+            'x-uber-device-mobile-iso2': 'US',
+            'x-uber-drm-id': self.device.drm_id,
+            'x-uber-device': 'android',
+            'x-uber-device-language': 'en_US',
+            'user-agent': 'Cronet/129.0.6668.102@aa3a5623',
+            'x-uber-device-os': self.device.os,
+            'x-uber-device-sdk': self.device.sdk,
+            'x-uber-request-uuid': str(uuid.uuid4()),
+            'x-uber-client-user-session-id': self.device.client_user_analytics_session_id,
+            'x-uber-client-version': self.device.version,
+            'x-uber-device-manufacturer': 'Google',
+            'x-uber-call-uuid': self.device.call_uuid,
+            'x-uber-device-id': self.device.udid,
+            'x-uber-markup-textformat-version': '1',
+            'x-uber-device-model': self.device.model,
+            'uberctx-mobile-initiated': 'true',
+            'x-uber-app-variant': self.device.app_variant,
+            'x-uber-analytics-session-id': self.device.client_user_analytics_session_id,
+            'content-type': 'application/json; charset=UTF-8',
+            'uberctx-client-network-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-device-epoch': str(int(self.device._generate_epoch())),
+            'uberctx-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-client-id': self.device.client_id,
+            'x-uber-app-lifecycle-state': 'foreground',
+            'x-uber-protocol-version': '0.73.0',
+            'x-uber-device-timezone': self.device.location_city,
+            'x-uber-client-name': 'eats',
+            'x-uber-client-session': self.device.client_session_uuid,
+            'x-uber-device-time-24-format-enabled': '0',
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-uber-device-voiceover': '0',
+            'priority': 'u=1, i',
         }
 
-    async def email_signup(self, email: str) -> Optional[str]:
-        device = self.config.get('device', 'android').lower()
-        client_app_version = self.device_info.get('version', '6.294.10000')
-
-        data = {
-            "formContainerAnswer": {
-                "inAuthSessionID": "",
-                "formAnswer": {
-                    "flowType": "INITIAL",
-                    "standardFlow": True,
-                    "accountManagementFlow": False,
-                    "daffFlow": False,
-                    "productConstraints": {
-                        "isEligibleForWebOTPAutofill": False,
-                        "uslFELibVersion": "",
-                        "uslMobileLibVersion": "",
-                        "isWhatsAppAvailable": False,
-                        "isPublicKeyCredentialSupported": True,
-                        "isFacebookAvailable": False,
-                        "isGoogleAvailable": False,
-                        "isRakutenAvailable": False,
-                        "isKakaoAvailable": False
-                    },
-                    "additionalParams": {
-                        "isEmailUpdatePostAuth": False
-                    },
-                    "deviceData": json.dumps(self.device_info),
-                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "screenAnswers": [
-                        {
-                            "screenType": "PHONE_NUMBER_INITIAL",
-                            "eventType": "TypeInputEmail",
-                            "fieldAnswers": [
-                                {
-                                    "fieldType": "EMAIL_ADDRESS",
-                                    "emailAddress": email
-                                }
-                            ]
-                        }
-                    ],
-                    "appContext": {
-                        "socialNative": "afg"
-                    }
-                }
-            }
+        json_data = {
+            'request': {
+                'installationID': self.device.installation_uuid,
+                'clientType': 'android',
+                'clientIntegrityToken': '',
+            },
         }
+
+        response = await self.request_handler.post('Upsert Device 1', "https://cn-geo1.uber.com/rt/devices/task", headers=headers, data=json_data)
+
+        # upsert device 2 results
+        headers = {
+            'x-uber-device-mobile-iso2': 'US',
+            'x-uber-drm-id': self.device.drm_id,
+            'x-uber-device': 'android',
+            'x-uber-device-language': 'en_US',
+            'user-agent': 'Cronet/129.0.6668.102@aa3a5623',
+            'x-uber-device-os': self.device.os,
+            'x-uber-device-sdk': self.device.sdk,
+            'x-uber-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-client-user-session-id': self.device.client_user_analytics_session_id,
+            'x-uber-client-version': self.device.version,
+            'x-uber-device-manufacturer': 'Google',
+            'x-uber-call-uuid': self.device.call_uuid,
+            'x-uber-device-id': self.device.udid,
+            'x-uber-markup-textformat-version': '1',
+            'x-uber-device-model': self.device.model,
+            'uberctx-mobile-initiated': 'true',
+            'x-uber-app-variant': self.device.app_variant,
+            'x-uber-analytics-session-id': self.device.client_user_analytics_session_id,
+            'content-type': 'application/json; charset=UTF-8',
+            'x-uber-network-classifier': 'MEDIUM',
+            'uberctx-client-network-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-device-epoch': str(int(self.device._generate_epoch())),
+            'uberctx-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-client-id': self.device.client_id,
+            'x-uber-app-lifecycle-state': 'foreground',
+            'x-uber-protocol-version': '0.73.0',
+            'x-uber-device-timezone': self.device.location_city,
+            'x-uber-client-name': 'eats',
+            'x-uber-client-session': self.device.client_session_uuid,
+            'x-uber-device-time-24-format-enabled': '0',
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-uber-device-voiceover': '0',
+            'priority': 'u=1, i',
+        }
+
+        json_data = {
+            'request': {
+                'installationID': self.device.installation_uuid,
+                'msmAttestation': {
+                    'token': self.device.generate_msm_attestation_token(),
+                },
+                'attemptNumber': 1,
+            },
+        }
+        response = await self.request_handler.post('Upsert Device 2', "https://cn-geo1.uber.com/rt/devices/results", headers=headers, data=json_data)
+
+        # upsert device 3 upsert
+        headers = {
+            'x-uber-device-mobile-iso2': 'US',
+            'x-uber-device': 'android',
+            'uber-trace-id': self.device.trace_id,
+            'x-uber-device-language': 'en_US',
+            'user-agent': self.device.user_agent,
+            'x-uber-device-os': self.device.os,
+            'x-uber-device-sdk': self.device.sdk,
+            'x-uber-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-client-user-session-id': self.device.client_user_analytics_session_id,
+            'x-uber-client-version': self.device.version,
+            'x-uber-device-manufacturer': 'Google',
+            'x-uber-call-uuid': self.device.call_uuid,
+            'x-uber-device-id': self.device.udid,
+            'x-uber-markup-textformat-version': '1',
+            'x-uber-device-model': self.device.model,
+            'uberctx-mobile-initiated': 'true',
+            'x-uber-app-variant': self.device.app_variant,
+            'x-uber-analytics-session-id': self.device.client_user_analytics_session_id,
+            'content-type': 'application/json; charset=UTF-8',
+            'uberctx-client-network-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-device-epoch': str(int(self.device._generate_epoch())),
+            'uberctx-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-client-id': self.device.client_id,
+            'x-uber-app-lifecycle-state': 'foreground',
+            'x-uber-protocol-version': '0.73.0',
+            'x-uber-device-timezone': self.device.location_city,
+            'x-uber-client-name': 'eats',
+            'x-uber-client-session': self.device.client_session_uuid,
+            'x-uber-device-time-24-format-enabled': '0',
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-uber-device-voiceover': '0',
+            'priority': 'u=1, i',
+        }
+
+        json_data = {
+            "deviceData": self.device.build_device_data_v2()
+        }
+
+        await self.request_handler.post(
+            'Upsert Device 3',
+            url="https://cn-geo1.uber.com/rt/devices/upsert",
+            headers=headers,
+            data=json_data
+        )
 
         headers = {
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Content-Type": "application/json",
-            "Host": "auth.uber.com",
-            "Origin": "https://auth.uber.com",
-            "Sec-Ch-Ua": "\"Not A(Brand\";v=\"8\", \"Chromium\";v=\"132\", \"Google Chrome\";v=\"132\"",
-            "Sec-Ch-Ua-Mobile": "?1",
-            "Sec-Ch-Ua-Platform": "\"Android\"",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": self._get_user_agent(),
-            "Via": "1.1 martian-a6a2b2967dba8230c0eb",
-            "X-Csrf-Token": "x",
-            "X-Uber-Analytics-Session-Id": "ecf13d6e-cab1-4848-9cc8-deb332d3212e",
-            "X-Uber-App-Device-Id": "cea7e57f-cf80-397c-709c-241a9384b974",
-            "X-Uber-App-Variant": "ubereats",
-            "X-Uber-Client-Id": "com.ubercab.eats",
-            "X-Uber-Client-Name": "eats",
-            "X-Uber-Client-Version": client_app_version,
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
-            "X-Uber-Device-Udid": "248e7351-7757-40ce-b64d-c931d5ea8e54",
+            'sec-ch-ua': '"Chromium";v="142", "Android WebView";v="142", "Not_A Brand";v="99"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'upgrade-insecure-requests': '1',
+            'user-agent': self.device.user_agent,
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'x-uber-client-id': self.device.client_id,
+            'x-uber-pwv-instance-id': str(uuid.uuid4()),
+            'sec-ch-prefers-color-scheme': 'light',
+            'x-uber-auth-social-login-providers': '["googleweb","google"]',
+            'x-uber-device-data': self.device.build_device_data(),
+            'x-uber-pwv-client-id': 'identity_eats_usl',
+            'x-requested-with': self.device.client_id,
+            'sec-fetch-site': 'none',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-user': '?1',
+            'sec-fetch-dest': 'document',
+            'accept-language': 'en-US,en;q=0.9',
+            'priority': 'u=0, i',
         }
+
+        params = {
+            'showDebugInfo': 'false',
+            'x-uber-device': 'android',
+            'x-uber-client-name': 'eats',
+            'x-uber-client-version': self.device.version,
+            'x-uber-client-id': self.device.client_id,
+            'firstPartyClientID': self.device.first_party_client_id,
+            'isEmbedded': 'true',
+            'codeChallenge': self.device.pkce_challenge,
+            'app_url': self.device.app_url,
+            'asms': 'true',
+            'x-uber-device-udid': self.device.udid,
+            'sim_mcc': '',
+            'sim_mnc': '',
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-uber-device-location-latitude': self.device.latitude,
+            'x-uber-device-location-longitude': self.device.longitude,
+            'socialNative': 'g',
+            'x-uber-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-hot-launch-id': self.device.hot_launch_id,
+            'x-uber-app-variant': self.device.app_variant,
+            'countryCode': 'US',
+            'known_user': 'false',
+            'isChromeCustomTabSession': 'false',
+        }
+
+        referer_items = []
+        for k, v in params.items():
+            if k == 'app_url':
+                referer_items.append(f"{k}={quote(str(v), safe='')}")
+            else:
+                referer_items.append(f"{k}={v}")
+        referer_url = 'https://auth.uber.com/v2?' + '&'.join(referer_items)
+        
+        await self.request_handler.get("Get Session", "https://auth.uber.com/v2", headers=headers, params=params)
+
+        # get udi-fingerprint
+        headers = {
+            'sec-ch-ua-platform': '"Android"',
+            'x-csrf-token': 'x',
+            'user-agent': self.device.user_agent,
+            'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            'content-type': 'application/json',
+            'sec-ch-ua-mobile': '?1',
+            'accept': '*/*',
+            'origin': 'https://auth.uber.com',
+            'x-requested-with': self.device.client_id,
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-dest': 'empty',
+            'referer': referer_url,
+            'accept-language': 'en-US,en;q=0.9',
+            'priority': 'u=1, i',
+        }
+
+        json_data = {
+            'meta': self.device.get_device_fingerprint()
+        }
+
+        await self.request_handler.post('Get UDI Fingerprint', 'https://auth.uber.com/v2/udi-meta', headers=headers, data=json_data)
+
+    async def email_signup(self, email: str) -> Optional[str]:
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': '',
+                'formAnswer': {
+                    'flowType': 'INITIAL',
+                    'standardFlow': True,
+                    'accountManagementFlow': False,
+                    'daffFlow': False,
+                    'productConstraints': {
+                        'autoSMSVerificationSupported': True,
+                        'isEligibleForWebOTPAutofill': False,
+                        'uslFELibVersion': '',
+                        'uslMobileLibVersion': '',
+                        'isWhatsAppAvailable': False,
+                        'isPublicKeyCredentialSupported': True,
+                        'isAppleAvailable': False,
+                        'isFacebookAvailable': False,
+                        'isGoogleAvailable': False,
+                        'isRakutenAvailable': False,
+                        'isKakaoAvailable': False,
+                    },
+                    'additionalParams': {
+                        'isEmailUpdatePostAuth': False,
+                    },
+                    'deviceData': self.device.build_device_data(),
+                    'codeChallenge': self.device.pkce_challenge,
+                    'uslURL': self.device.build_usl_url(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'screenAnswers': [
+                        {
+                            'screenType': 'PHONE_NUMBER_INITIAL',
+                            'eventType': 'TypeInputEmail',
+                            'fieldAnswers': [
+                                {
+                                    'fieldType': 'EMAIL_ADDRESS',
+                                    'emailAddress': email,
+                                },
+                            ],
+                        },
+                    ],
+                    'appContext': {
+                        'appUrl': self.device.app_url,
+                        'socialNative': 'g',
+                    },
+                },
+            },
+        }
+        
+        headers = {
+            'sec-ch-ua-platform': '"Android"',
+            'x-uber-hot-launch-id': self.device.hot_launch_id,
+            #'x-uber-challenge-provider': 'ARKOSE_TOKEN',
+            'sec-ch-ua': '"Chromium";v="142", "Android WebView";v="142", "Not_A Brand";v="99"',
+            'x-uber-device-location-longitude': self.device.longitude,
+            'sec-ch-ua-mobile': '?1',
+            'x-uber-client-name': 'eats',
+            #'x-uber-challenge-token': '678187f84f1554b76.6387716002|r=us-west-2|meta=3|metabgclr=transparent|metaiconclr=%23757575|guitextcolor=%23000000|pk=30000F36-CADF-490C-929A-C6A7DD8B33C4|at=40|sup=1|rid=5|ag=101|cdn_url=https%3A%2F%2Fak04a6qc.uber.com%2Fcdn%2Ffc|surl=https%3A%2F%2Fak04a6qc.uber.com|smurl=https%3A%2F%2Fak04a6qc.uber.com%2Fcdn%2Ffc%2Fassets%2Fstyle-manager',
+            'x-uber-request-uuid': str(uuid.uuid4()),
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-uber-app-variant': self.device.app_variant,
+            'content-type': 'application/json',
+            'x-uber-device': 'android',
+            'x-csrf-token': 'x',
+            'x-uber-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-device-udid': self.device.udid,
+            'accept-language': 'en',
+            'x-uber-usl-id': self.device.udid,
+            'x-uber-device-location-latitude': self.device.latitude,
+            'x-uber-client-version': self.device.version,
+            'user-agent': self.device.user_agent,
+            'x-uber-client-id': self.device.client_id,
+            'accept': '*/*',
+            'origin': 'https://auth.uber.com',
+            'x-requested-with': self.device.client_id,
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-dest': 'empty',
+            'referer': self.device.build_usl_url(),
+            'priority': 'u=1, i',
+        }
+
+        """
+        cookies = {
+            '_cc': 'AcWQI%2FVRsGGasJLDQCpGie66',
+            '_cid_cc': 'AcWQI%2FVRsGGasJLDQCpGie66',
+            '_ua': '{"session_id":"fa153bf6-1425-4700-8fb4-02184a87655b","session_time_ms":1764711506103}',
+            'udi-fingerprint': 'w5UnWL+SLhGOkmgubZD3/XEuAMKnY1hRi3yWdikE6fooNmc2eYNB5HwiQdtsq9O+Jl0k2d88Q4+HxbN6VZDYuQ==7BaOiGUaoSFvcz4lYOw82P1owRIhjr6psRVQGPVt5DA=',
+        }
+        """
 
         response = await self.request_handler.post(
             "Email Signup",
-            ENDPOINTS['submit_form'],
+            "https://auth.uber.com/v2/submit-form",
             headers,
-            data
+            json_data
         )
 
         if response:
-            return response.json().get('inAuthSessionID')
+            try:
+                if not response.text or response.text.strip() == '':
+                    print(f"[!] Email Signup: Empty response body")
+                    return None
+                return response.json().get('inAuthSessionID')
+            except json.JSONDecodeError as e:
+                print(f"[!] Email Signup: Invalid JSON response - {e}")
+                print(f"    Response text: {response.text[:200]}")
+                return None
         return None
 
-    async def submit_otp(self, session_id: str, otp: str) -> Optional[str]:
-        data = {
-            "formContainerAnswer": {
-                "inAuthSessionID": session_id,
-                "formAnswer": {
-                    "flowType": "SIGN_UP",
-                    "standardFlow": True,
-                    "accountManagementFlow": False,
-                    "daffFlow": False,
-                    "productConstraints": {
-                        "isEligibleForWebOTPAutofill": False,
-                        "uslFELibVersion": "",
-                        "uslMobileLibVersion": "1.107",
-                        "isWhatsAppAvailable": False,
-                        "isPublicKeyCredentialSupported": True,
-                        "isFacebookAvailable": False,
-                        "isRakutenAvailable": False,
-                        "isKakaoAvailable": False
+    async def submit_otp(self, session_id: str, otp: str) -> Optional[Dict[str, Any]]:
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': session_id,
+                'formAnswer': {
+                    'flowType': 'SIGN_UP',
+                    'standardFlow': True,
+                    'accountManagementFlow': False,
+                    'daffFlow': False,
+                    'productConstraints': {
+                        'autoSMSVerificationSupported': True,
+                        'isEligibleForWebOTPAutofill': False,
+                        'uslFELibVersion': '',
+                        'uslMobileLibVersion': '',
+                        'isWhatsAppAvailable': False,
+                        'isPublicKeyCredentialSupported': False,
+                        'isAppleAvailable': False,
+                        'isFacebookAvailable': False,
+                        'isGoogleAvailable': False,
+                        'isRakutenAvailable': False,
+                        'isKakaoAvailable': False,
+                        'isGoogleDeeplinkAvailable': True,
                     },
-                    "additionalParams": {
-                        "isEmailUpdatePostAuth": False
+                    'additionalParams': {
+                        'isEmailUpdatePostAuth': False,
                     },
-                    "deviceData": "",
-                    "codeChallenge": "eMw_kvmk5MNvtMZkvYWSpZcib4Jvd0M148zSahclT3w",
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "screenAnswers": [
+                    'deviceData': self.device.build_device_data(),
+                    'codeChallenge': self.device.pkce_challenge,
+                    'uslURL': self.device.build_usl_url(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'screenAnswers': [
                         {
-                            "screenType": "EMAIL_OTP_CODE",
-                            "eventType": "TypeEmailOTP",
-                            "fieldAnswers": [
+                            'screenType': 'EMAIL_OTP_CODE',
+                            'eventType': 'TypeEmailOTP',
+                            'fieldAnswers': [
                                 {
-                                    "fieldType": "EMAIL_OTP_CODE",
-                                    "emailOTPCode": otp
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
+                                    'fieldType': 'EMAIL_OTP_CODE',
+                                    'emailOTPCode': otp,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        }
+
+        headers = {
+            'X-Uber-Usl-Id': self.device.udid,
+            'X-Uber-Hot-Launch-Id': self.device.hot_launch_id,
+            'x-uber-device-location-latitude': self.device.latitude,
+            'X-Uber-Request-Uuid': str(uuid.uuid4()),
+            'Accept-Language': 'en',
+            'X-Uber-Device-Udid': self.device.udid,
+            'X-Uber-Client-Name': 'eats',
+            'X-Uber-Device': 'android',
+            'X-Uber-Client-Version': self.device.version,
+            'X-Uber-App-Variant': self.device.app_variant,
+            'X-Uber-Cold-Launch-Id': self.device.cold_launch_id,
+            'X-Uber-Client-Id': self.device.client_id,
+            'User-Agent': self.device.user_agent,
+            'Content-Type': 'application/json',
+            'X-Uber-App-Device-Id': self.device.app_device_id,
+            'x-uber-device-location-longitude': self.device.longitude,
+            'Accept': '*/*',
+            'Origin': 'https://auth.uber.com',
+            'X-Requested-With': self.device.client_id,
+            'Sec-Fetch-Site': 'same-site',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'Referer': 'https://auth.uber.com/',
         }
 
         response = await self.request_handler.post(
             "Submit OTP",
-            ENDPOINTS['submit_form_geo'],
-            self._get_headers(),
-            data
+            "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
+            headers,
+            json_data
         )
 
         if response:
-            return response.json().get('inAuthSessionID')
+            return response.json()
         return None
 
-    async def complete_registration(self, email: str, name: str, session_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
-        session_id = await self._skip_submit(session_id)
-        if not session_id:
-            return False, None, None
+    async def _skip_phone_number(self, session_id: str) -> Optional[str]:
+        """
+        Function: Skip phone number screen
+        On signup, some times submit_otp results in the next step being PHONE_NUMBER_PROGRESSIVE, rather than FULL_NAME_PROGRESSIVE.
+        To handle this, only on these cases do we call _skip_phone_number to handle this phone number screen issue.
+        """
 
-        session_id = await self._submit_name(session_id, name)
-        if not session_id:
-            return False, None, None
-
-        session_id, auth_code = await self._submit_legal_confirmation(session_id)
-        if not session_id or not auth_code:
-            return False, None, None
-
-        result = await self._submit_auth_code(session_id, auth_code, email, name)
-        return result
-
-    async def _skip_submit(self, session_id: str) -> Optional[str]:
-        device = self.config.get('device', 'android').lower()
-        client_app_version = self.device_info.get('version', '6.294.10000')
-
-        data = {
-            "formContainerAnswer": {
-                "inAuthSessionID": session_id,
-                "formAnswer": {
-                    "flowType": "PROGRESSIVE_SIGN_UP",
-                    "standardFlow": True,
-                    "accountManagementFlow": False,
-                    "daffFlow": False,
-                    "productConstraints": {
-                        "isEligibleForWebOTPAutofill": False,
-                        "uslFELibVersion": "",
-                        "uslMobileLibVersion": "",
-                        "isWhatsAppAvailable": False,
-                        "isPublicKeyCredentialSupported": True,
-                        "isFacebookAvailable": False,
-                        "isGoogleAvailable": False,
-                        "isRakutenAvailable": False,
-                        "isKakaoAvailable": False
-                    },
-                    "additionalParams": {
-                        "isEmailUpdatePostAuth": False
-                    },
-                    "deviceData": json.dumps(self.device_info),
-                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "screenAnswers": [
-                        {
-                            "screenType": "SKIP",
-                            "eventType": "TypeSkip",
-                            "fieldAnswers": []
-                        }
-                    ]
-                }
-            }
+        headers = {
+            'X-Uber-Usl-Id': self.device.udid,
+            'X-Uber-Hot-Launch-Id': self.device.hot_launch_id,
+            'X-Uber-Device-Location-Latitude': self.device.latitude,
+            'X-Uber-Request-Uuid': str(uuid.uuid4()),
+            'Accept-Language': 'en',
+            'X-Uber-Device-Udid': self.device.udid,
+            'X-Uber-Client-Name': 'eats',
+            'X-Uber-Device': 'android',
+            'X-Uber-Client-Version': self.device.version,
+            'X-Uber-App-Variant': self.device.app_variant,
+            'X-Uber-Cold-Launch-Id': self.device.cold_launch_id,
+            'X-Uber-Client-Id': self.device.client_id,
+            'User-Agent': self.device.user_agent,
+            'Content-Type': 'application/json',
+            'X-Uber-App-Device-Id': self.device.app_device_id,
+            'X-Uber-Device-Location-Longitude': self.device.longitude,
+            'Accept': '*/*',
+            'Origin': 'https://auth.uber.com',
+            'X-Requested-With': self.device.client_id,
+            'Sec-Fetch-Site': 'same-site',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'Referer': 'https://auth.uber.com/',
         }
 
-        device = self.config.get('device', 'android').lower()
-        headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
-            'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
-            'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': session_id,
+                'formAnswer': {
+                    'flowType': 'PROGRESSIVE_SIGN_UP',
+                    'standardFlow': True,
+                    'accountManagementFlow': False,
+                    'daffFlow': False,
+                    'productConstraints': {
+                        'autoSMSVerificationSupported': True,
+                        'isEligibleForWebOTPAutofill': False,
+                        'uslFELibVersion': '',
+                        'uslMobileLibVersion': '',
+                        'isWhatsAppAvailable': False,
+                        'isPublicKeyCredentialSupported': False,
+                        'isAppleAvailable': False,
+                        'isFacebookAvailable': False,
+                        'isGoogleAvailable': False,
+                        'isRakutenAvailable': False,
+                        'isKakaoAvailable': False,
+                        'isGoogleDeeplinkAvailable': True,
+                    },
+                    'additionalParams': {
+                        'isEmailUpdatePostAuth': False,
+                    },
+                    'deviceData': self.device.build_device_data(),
+                    'codeChallenge': self.device.pkce_challenge,
+                    'uslURL': self.device.build_usl_url(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'screenAnswers': [
+                        {
+                            'screenType': 'SKIP',
+                            'eventType': 'TypeSkip',
+                            'fieldAnswers': [],
+                        },
+                    ],
+                },
+            },
         }
 
         response = await self.request_handler.post(
-            "Skip Submit",
-            ENDPOINTS['submit_form_geo'],
+            "Skip Phone Number",
+            "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
             headers,
-            data
+            json_data
         )
 
         if response:
@@ -509,75 +541,86 @@ class AccountGenerator:
 
     async def _submit_name(self, session_id: str, name: str) -> Optional[str]:
         first_name, last_name = name.split(' ', 1)
-        device = self.config.get('device', 'android').lower()
-        client_app_version = self.device_info.get('version', '6.294.10000')
 
-        data = {
-            "formContainerAnswer": {
-                "inAuthSessionID": session_id,
-                "formAnswer": {
-                    "flowType": "PROGRESSIVE_SIGN_UP",
-                    "standardFlow": True,
-                    "accountManagementFlow": False,
-                    "daffFlow": False,
-                    "productConstraints": {
-                        "isEligibleForWebOTPAutofill": False,
-                        "uslFELibVersion": "",
-                        "uslMobileLibVersion": "",
-                        "isWhatsAppAvailable": False,
-                        "isPublicKeyCredentialSupported": True,
-                        "isFacebookAvailable": False,
-                        "isGoogleAvailable": False,
-                        "isRakutenAvailable": False,
-                        "isKakaoAvailable": False
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': session_id,
+                'formAnswer': {
+                    'flowType': 'PROGRESSIVE_SIGN_UP',
+                    'standardFlow': True,
+                    'accountManagementFlow': False,
+                    'daffFlow': False,
+                    'productConstraints': {
+                        'autoSMSVerificationSupported': True,
+                        'isEligibleForWebOTPAutofill': False,
+                        'uslFELibVersion': '',
+                        'uslMobileLibVersion': '',
+                        'isWhatsAppAvailable': False,
+                        'isPublicKeyCredentialSupported': False,
+                        'isAppleAvailable': False,
+                        'isFacebookAvailable': False,
+                        'isGoogleAvailable': False,
+                        'isRakutenAvailable': False,
+                        'isKakaoAvailable': False,
+                        'isGoogleDeeplinkAvailable': True,
                     },
-                    "additionalParams": {
-                        "isEmailUpdatePostAuth": False
+                    'additionalParams': {
+                        'isEmailUpdatePostAuth': False,
                     },
-                    "deviceData": json.dumps(self.device_info),
-                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "screenAnswers": [
+                    'deviceData': self.device.build_device_data(),
+                    'uslURL': self.device.build_usl_url(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'screenAnswers': [
                         {
-                            "screenType": "FULL_NAME_PROGRESSIVE",
-                            "eventType": "TypeInputNewUserFullName",
-                            "fieldAnswers": [
+                            'screenType': 'FULL_NAME_PROGRESSIVE',
+                            'eventType': 'TypeInputNewUserFullName',
+                            'fieldAnswers': [
                                 {
-                                    "fieldType": "FIRST_NAME",
-                                    "firstName": first_name
+                                    'fieldType': 'FIRST_NAME',
+                                    'firstName': first_name,
                                 },
                                 {
-                                    "fieldType": "LAST_NAME",
-                                    "lastName": last_name
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
+                                    'fieldType': 'LAST_NAME',
+                                    'lastName': last_name,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
         }
 
-        device = self.config.get('device', 'android').lower()
         headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
+            'X-Uber-Usl-Id': self.device.udid,
+            'X-Uber-Hot-Launch-Id': self.device.hot_launch_id,
+            'x-uber-device-location-longitude': self.device.latitude,
+            'X-Uber-Request-Uuid': str(uuid.uuid4()),
+            'Accept-Language': 'en',
+            'X-Uber-Device-Udid': self.device.udid,
             'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
+            'X-Uber-Device': 'android',
+            'X-Uber-Client-Version': self.device.version,
+            'X-Uber-App-Variant': self.device.app_variant,
+            'X-Uber-Cold-Launch-Id': self.device.cold_launch_id,
+            'X-Uber-Client-Id': self.device.client_id,
+            'User-Agent': self.device.user_agent,
             'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
+            'X-Uber-App-Device-Id': self.device.app_device_id,
+            'x-uber-device-location-longitude': self.device.longitude,
+            'Accept': '*/*',
+            'Origin': 'https://auth.uber.com',
+            'X-Requested-With': self.device.client_id,
+            'Sec-Fetch-Site': 'same-site',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'Referer': 'https://auth.uber.com/',
         }
 
         response = await self.request_handler.post(
             "Submit Name",
-            ENDPOINTS['submit_form_geo'],
+            "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
             headers,
-            data
+            json_data
         )
 
         if response:
@@ -585,81 +628,92 @@ class AccountGenerator:
         return None
 
     async def _submit_legal_confirmation(self, session_id: str) -> Tuple[Optional[str], Optional[str]]:
-        device = self.config.get('device', 'android').lower()
-        client_app_version = self.device_info.get('version', '6.294.10000')
-
-        data = {
-            "formContainerAnswer": {
-                "inAuthSessionID": session_id,
-                "formAnswer": {
-                    "flowType": "SIGN_UP",
-                    "standardFlow": True,
-                    "accountManagementFlow": False,
-                    "daffFlow": False,
-                    "productConstraints": {
-                        "isEligibleForWebOTPAutofill": False,
-                        "uslFELibVersion": "",
-                        "uslMobileLibVersion": "",
-                        "isWhatsAppAvailable": False,
-                        "isPublicKeyCredentialSupported": True,
-                        "isFacebookAvailable": False,
-                        "isGoogleAvailable": False,
-                        "isRakutenAvailable": False,
-                        "isKakaoAvailable": False
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': session_id,
+                'formAnswer': {
+                    'flowType': 'SIGN_UP',
+                    'standardFlow': True,
+                    'accountManagementFlow': False,
+                    'daffFlow': False,
+                    'productConstraints': {
+                        'autoSMSVerificationSupported': True,
+                        'isEligibleForWebOTPAutofill': False,
+                        'uslFELibVersion': '',
+                        'uslMobileLibVersion': '',
+                        'isWhatsAppAvailable': False,
+                        'isPublicKeyCredentialSupported': False,
+                        'isAppleAvailable': False,
+                        'isFacebookAvailable': False,
+                        'isGoogleAvailable': False,
+                        'isRakutenAvailable': False,
+                        'isKakaoAvailable': False,
+                        'isGoogleDeeplinkAvailable': True,
                     },
-                    "additionalParams": {
-                        "isEmailUpdatePostAuth": False
+                    'additionalParams': {
+                        'isEmailUpdatePostAuth': False,
                     },
-                    "deviceData": json.dumps(self.device_info),
-                    "codeChallenge": "XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "uslURL": f"https://auth.uber.com/v2?x-uber-device={'iphone' if device == 'ios' else 'android'}&x-uber-client-name=eats&x-uber-client-version={client_app_version}&x-uber-client-id=com.ubercab.UberEats&countryCode=US&firstPartyClientID=S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z&isiOSCustomTabSessionClose=true&showPasskeys=true&x-uber-app-variant=ubereats&x-uber-hot-launch-id=7AE26A95-AC62-4DB2-BF6E-E36308EBDCFD&socialNative=afg&x-uber-cold-launch-id=2A5D3FCB-0D28-48D5-81D7-5224D5C963C1&x-uber-device-udid=6968C387-69C6-48B6-9600-51986944428C&is_root=false&known_user=true&codeChallenge=XQt42Ii1O9Qzg69ULyVHcQs8uvhvIznGQniUsVI-mEA",
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "screenAnswers": [
+                    'deviceData': self.device.build_device_data(),
+                    'uslURL': self.device.build_usl_url(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'screenAnswers': [
                         {
-                            "screenType": "LEGAL",
-                            "eventType": "TypeSignupLegal",
-                            "fieldAnswers": [
+                            'screenType': 'LEGAL',
+                            'eventType': 'TypeSignupLegal',
+                            'fieldAnswers': [
                                 {
-                                    "fieldType": "LEGAL_CONFIRMATION",
-                                    "legalConfirmation": True
+                                    'fieldType': 'LEGAL_CONFIRMATION',
+                                    'legalConfirmation': True,
                                 },
                                 {
-                                    "fieldType": "LEGAL_CONFIRMATIONS",
-                                    "legalConfirmations": {
-                                        "legalConfirmations": [
+                                    'fieldType': 'LEGAL_CONFIRMATIONS',
+                                    'legalConfirmations': {
+                                        'legalConfirmations': [
                                             {
-                                                "disclosureVersionUUID": "ef1d61c9-b09e-4d44-8cfb-ddfa15cc7523",
-                                                "isAccepted": True
-                                            }
-                                        ]
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
+                                                'disclosureVersionUUID': 'ef1d61c9-b09e-4d44-8cfb-ddfa15cc7523',
+                                                'isAccepted': True,
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
         }
 
         headers = {
-            'Referer': 'https://auth.uber.com/',
-            'User-Agent': self._get_user_agent(),
-            'X-Uber-Client-Version': client_app_version,
+            'X-Uber-Usl-Id': self.device.udid,
+            'X-Uber-Hot-Launch-Id': self.device.hot_launch_id,
+            'x-uber-device-location-latitude': self.device.latitude,
+            'X-Uber-Request-Uuid': str(uuid.uuid4()),
+            'Accept-Language': 'en',
+            'X-Uber-Device-Udid': self.device.udid,
             'X-Uber-Client-Name': 'eats',
-            'X-Uber-App-Variant': 'ubereats',
-            'Origin': 'https://auth.uber.com',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'Accept': '*/*',
+            'X-Uber-Device': 'android',
+            'X-Uber-Client-Version': self.device.version,
+            'X-Uber-App-Variant': self.device.app_variant,
+            'X-Uber-Cold-Launch-Id': self.device.cold_launch_id,
+            'X-Uber-Client-Id': self.device.client_id,
+            'User-Agent': self.device.user_agent,
             'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if device == 'ios' else 'android',
+            'X-Uber-App-Device-Id': self.device.app_device_id,
+            'x-uber-device-location-longitude': self.device.longitude,
+            'Accept': '*/*',
+            'Origin': 'https://auth.uber.com',
+            'X-Requested-With': self.device.client_id,
+            'Sec-Fetch-Site': 'same-site',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'Referer': 'https://auth.uber.com/',
         }
 
         response = await self.request_handler.post(
             "Submit Legal",
-            ENDPOINTS['submit_form_geo'],
+            "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
             headers,
-            data
+            json_data
         )
 
         if response:
@@ -675,224 +729,786 @@ class AccountGenerator:
 
         return None, None
 
-    async def _submit_auth_code(self, session_id: str, auth_code: str, email: str = '', name: str = '') -> Tuple[bool, Optional[str], Optional[str]]:
-        data = {
-            "formContainerAnswer": {
-                "formAnswer": {
-                    "screenAnswers": [
+    async def _submit_auth_code(self, session_id: str, auth_code: str, email: str = '', name: str = '') -> Tuple[bool, Optional[dict]]:
+        json_data = {
+            'formContainerAnswer': {
+                'inAuthSessionID': f'{session_id}.{auth_code}',
+                'formAnswer': {
+                    'flowType': 'SIGN_IN',
+                    'screenAnswers': [
                         {
-                            "fieldAnswers": [
+                            'screenType': 'SESSION_VERIFICATION',
+                            'fieldAnswers': [
                                 {
-                                    "sessionVerificationCode": auth_code,
-                                    "fieldType": "SESSION_VERIFICATION_CODE",
-                                    "daffAcrValues": []
+                                    'fieldType': 'SESSION_VERIFICATION_CODE',
+                                    'sessionVerificationCode': auth_code,
                                 },
                                 {
-                                    "codeVerifier": "zZlmodq2L3ly2tJu6GqOa7Yx7AjJpx3TpiXWFfhUDsZ1QSgTObHzgKn5IBLDxtQBd6Gpj8z1BZki6SwEIg2WRg--",
-                                    "fieldType": "CODE_VERIFIER",
-                                    "daffAcrValues": []
-                                }
+                                    'fieldType': 'CODE_VERIFIER',
+                                    'codeVerifier': self.device.pkce_verifier,
+                                },
                             ],
-                            "eventType": "TypeVerifySession",
-                            "screenType": "SESSION_VERIFICATION"
-                        }
+                            'eventType': 'TypeVerifySession',
+                        },
                     ],
-                    "standardFlow": True,
-                    "deviceData": json.dumps(self.device_info),
-                    "firstPartyClientID": "S_Fwp1YMY1qAlAf5-yfYbeb7cfJE-50z",
-                    "flowType": "SIGN_IN"
+                    'deviceData': self.device.build_device_data(),
+                    'firstPartyClientID': self.device.first_party_client_id,
+                    'standardFlow': True,
+                    'appID': 'EATS',
                 },
-                "inAuthSessionID": f"{session_id}.{auth_code}"
-            }
-        }
-
-        device = self.config.get('device', 'android').lower()
-        is_ios = device == 'ios'
-        client_app_version = self.device_info.get('version', '6.294.10000')
-        
-        headers = {
-            'Accept': '*/*',
-            'X-Uber-Device-Location-Services-Enabled': '0',
-            'X-Uber-Device-Language': 'en_US',
-            'User-Agent': '/iphone/' + client_app_version if is_ios else '/android/' + client_app_version,
-            'X-Uber-Eats-App-Installed': '0',
-            'X-Uber-App-Lifecycle-State': 'foreground',
-            'X-Uber-Request-Uuid': str(uuid.uuid4()),
-            'X-Uber-Device-Time-24-Format-Enabled': '0',
-            'X-Uber-Device-Location-Provider': 'ios_core' if is_ios else 'network',
-            'X-Uber-Markup-Textformat-Version': '1',
-            'X-Uber-Device-Voiceover': '0',
-            'X-Uber-Device-Model': 'iPhone21,4' if is_ios else 'Pixel 9 Pro',
-            'Accept-Language': 'en-US;q=1',
-            'X-Uber-Redirectcount': '0',
-            'X-Uber-Device-Os': '18.0' if is_ios else '16',
-            'X-Uber-Network-Classifier': 'fast',
-            'X-Uber-Client-Version': client_app_version,
-            'X-Uber-App-Variant': 'ubereats',
-            'X-Uber-Device-Id-Tracking-Enabled': '0',
-            'X-Uber-Client-Id': 'com.ubercab.UberEats',
-            'X-Uber-Client-Name': 'eats',
-            'Content-Type': 'application/json',
-            'X-Uber-Device': 'iphone' if is_ios else 'android',
-            'X-Uber-Client-User-Session-Id': 'D7354EFE-AFB4-439E-8C9F-1AB8047DF1B5',
-            'X-Uber-Device-Ids': 'aaid:00000000-0000-0000-0000-000000000000',
-            'X-Uber-Device-Id': '6968C387-69C6-48B6-9600-51986944428C',
-        }
-
-        response = await self.request_handler.post(
-            "Submit Auth Code",
-            ENDPOINTS['submit_form_geo'],
-            headers,
-            data
-        )
-
-        # save device information(if enabled in console)
-        save_info = self.config.get('save_info', {})
-        
-        try:
-            with open('genned_accs.json', 'r') as f:
-                accs = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            accs = []
-
-        account_information = {}
-        if save_info.get('cookies', False):
-            # Save all cookies from the session, not just from the last response
-            account_information['cookies'] = self.request_handler.session.cookies.get_dict()
-        if save_info.get('device_data', False):
-            account_information['device_data'] = self.device_info
-        if save_info.get('account_info', False):
-            account_information['account_info'] = {'email': email, 'name': name}
-
-        accs.append(account_information)
-
-        try:
-            with open('genned_accs.json', 'w') as f:
-                json.dump(accs, f, indent=4)
-        except Exception as e:
-            print(f"[!] Failed to save account information: {e}")
-
-        if response:
-            # get auth_code and user_uuid for future requests
-            resp_json = response.json()
-            oauth_info = resp_json.get('oAuthInfo')
-            auth_code = oauth_info.get('accessToken', None) if oauth_info else None
-            user_uuid = resp_json.get('userUUID', None)
-            return True, auth_code, user_uuid
-        else:
-            return False, None, None
-
-    
-    async def _apply_promo_code(self, auth_code: str, user_uuid: str, promo_code: str) -> bool:
-        data = {
-            'request': {
-                'savingsInfo': {
-                    'code': promo_code,
-                },
-                'userUuid': user_uuid,
-                'ctaType': 'BROWSE',
             },
         }
 
         headers = {
+            'X-Uber-Device-Mobile-Iso2': self.device.location_country,
+            'X-Uber-Drm-Id': self.device.drm_id,
+            'X-Uber-Device': 'android',
+            'X-Uber-Cit': self.device.build_cit_token(),
+            'X-Uber-Device-Language': f'en_{self.device.location_country}',
+            'User-Agent': 'Cronet/129.0.6668.102@aa3a5623',
+            'X-Uber-Device-Os': self.device.os,
+            'X-Uber-Device-Sdk': self.device.sdk,
+            'X-Uber-Request-Uuid': str(uuid.uuid4()),
+            'X-Uber-Client-User-Session-Id': self.device.client_user_analytics_session_id,
+            'X-Uber-Client-Version': self.device.version,
+            'X-Uber-Device-Manufacturer': 'Google',
+            'X-Uber-Call-Uuid': str(uuid.uuid4()),
+            'X-Uber-Device-Id': self.device.udid,
+            'X-Uber-Markup-Textformat-Version': '1',
+            'X-Uber-Device-Model': self.device.model,
+            'Uberctx-Mobile-Initiated': 'true',
+            'X-Uber-App-Variant': self.device.app_variant,
+            'X-Uber-Analytics-Session-Id': self.device.client_user_analytics_session_id,
+            'X-Uber-Sig-Params': 'a=ES256;v=1',
+            'Content-Type': 'application/json; charset=UTF-8',
+            'X-Uber-Network-Classifier': 'MEDIUM',
+            'Uberctx-Client-Network-Request-Uuid': str(uuid.uuid4()),
+            'X-Uber-Device-Epoch': str(int(self.device._generate_epoch())),
+            'Uberctx-Cold-Launch-Id': self.device.cold_launch_id,
+            'X-Uber-Client-Id': self.device.client_id,
+            'X-Uber-App-Lifecycle-State': 'foreground',
+            'X-Uber-Protocol-Version': '0.73.0',
+            'X-Uber-Device-Timezone': self.device.location_city,
+            'X-Uber-Client-Name': 'eats', # stays as eats even for postmates
+            'X-Uber-Client-Session': str(uuid.uuid4()),
+            'X-Uber-Device-Time-24-Format-Enabled': '0',
+            'X-Uber-App-Device-Id': self.device.app_device_id,
+            'X-Uber-Device-Voiceover': '0',
+            'Priority': 'u=1, i',
+        }
+        headers['X-Uber-Sig'] = self.device.build_sig_token(headers)
+
+        response = await self.request_handler.post(
+            "Submit Auth Code",
+            "https://cn-geo1.uber.com/rt/silk-screen/submit-form",
+            headers,
+            json_data
+        )
+
+        if response:
+            resp_json = response.json()
+            return True, resp_json
+        else:
+            return False, None
+    
+    async def finish_signup(self, auth_code):
+        # get user id token
+        headers = {
             'x-uber-device-mobile-iso2': 'US',
+            'x-uber-drm-id': self.device.drm_id,
             'x-uber-device': 'android',
             'x-uber-device-language': 'en_US',
             'user-agent': 'Cronet/129.0.6668.102@aa3a5623',
             'authorization': f'Bearer {auth_code}',
-            'x-uber-device-os': '10',
-            'x-uber-device-sdk': '29',
-            'x-uber-client-version': '6.294.10000',
-            'x-uber-device-manufacturer': 'samsung',
-            'x-uber-device-id': str(uuid.uuid4()),
+            'x-uber-device-os': self.device.os,
+            'x-uber-device-sdk': self.device.sdk,
+            'x-uber-request-uuid': str(uuid.uuid4()),
+            'x-uber-client-user-session-id': self.device.client_user_analytics_session_id,
+            'x-uber-client-version': self.device.version,
+            'x-uber-device-manufacturer': 'Google',
+            'x-uber-call-uuid': self.device.call_uuid,
+            'x-uber-device-id': self.device.udid,
             'x-uber-markup-textformat-version': '1',
-            'x-uber-device-model': 'SM-G965U1',
+            'x-uber-device-model': self.device.model,
             'uberctx-mobile-initiated': 'true',
-            'x-uber-app-variant': 'ubereats',
+            'x-uber-app-variant': self.device.app_variant,
+            'x-uber-analytics-session-id': self.device.client_user_analytics_session_id,
             'content-type': 'application/json; charset=UTF-8',
-            'x-uber-network-classifier': 'FAST',
+            'x-uber-network-classifier': 'MEDIUM',
             'x-uber-token': 'no-token',
-            'x-uber-client-id': 'com.ubercab.eats',
+            'uberctx-client-network-request-uuid': self.device.client_network_request_uuid,
+            'x-uber-device-epoch': str(int(self.device._generate_epoch())),
+            'uberctx-cold-launch-id': self.device.cold_launch_id,
+            'x-uber-client-id': self.device.client_id,
             'x-uber-app-lifecycle-state': 'foreground',
             'x-uber-protocol-version': '0.73.0',
-            'x-uber-device-timezone': 'America/New_York',
+            'x-uber-device-timezone': self.device.location_city,
             'x-uber-client-name': 'eats',
+            'x-uber-client-session': self.device.client_session_uuid,
+            'x-uber-device-time-24-format-enabled': '0',
+            'x-uber-app-device-id': self.device.app_device_id,
             'x-uber-device-voiceover': '0',
             'priority': 'u=1, i',
         }
 
-        response = await self.request_handler.post(
-            "Apply Promo Code",
-            ENDPOINTS['apply_promo_code'],
-            headers,
-            data
-        )
+        json_data = {
+            'request': {
+                'clientID': self.device.first_party_client_id,
+                'skipSigning': True,
+            },
+        }
 
-        if response and response.json().get('chocolateChipCookieError'):
-            return False
-        elif response:
-            return True
-        else:
-            return False
+        await self.request_handler.post('get cookie id token', 'https://cn-geo1.uber.com/rt/identity/oauth2/user-id-token', headers=headers, data=json_data)
 
-    async def create_account(self, domain: str, email_client: IMAPClient) -> Optional[str]:
-        # Generate new device info for each account to avoid fingerprint reuse
-        self.device_info = generate_device_info()
 
-        # Reset session to isolate cookies between accounts
-        self.request_handler.reset_session()
+        # GSU
+        device_data_header = json.loads(self.device.build_device_data())
+        headers = {
+            'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'upgrade-insecure-requests': '1',
+            'user-agent': self.device.user_agent,
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'x-uber-device-mobile-iso2': 'US',
+            'x-uber-drm-id': self.device.drm_id,
+            'x-uber-device': 'android',
+            'x-uber-cold-launch-id': self.device.cold_launch_id,
+            'sec-ch-prefers-color-scheme': 'light',
+            'x-uber-device-language': 'en_US',
+            'x-uber-device-os': self.device.os,
+            'x-uber-device-sdk': self.device.sdk,
+            'x-uber-request-uuid': str(uuid.uuid4()),
+            'x-uber-client-version': self.device.version,
+            'x-uber-client-user-session-id': self.device.client_user_analytics_session_id,
+            'x-uber-device-manufacturer': 'Google',
+            'x-uber-device-id': self.device.udid,
+            'x-uber-hot-launch-id': self.device.hot_launch_id,
+            'x-uber-device-model': self.device.model,
+            'x-uber-app-variant': self.device.app_variant,
+            'x-uber-device-data': device_data_header,
+            'x-uber-device-udid': self.device.udid,
+            'x-uber-device-epoch': str(int(self.device.device_epoch)),
+            'x-uber-client-id': self.device.client_id,
+            'x-uber-device-timezone': self.device.location_city,
+            'x-uber-pwv-instance-id': str(uuid.uuid4()),
+            'x-uber-client-name': 'eats',
+            'x-uber-client-session': self.device.client_session_uuid,
+            'x-uber-pwv-client-id': 'identity_eats_uam',
+            'x-uber-app-device-id': self.device.app_device_id,
+            'x-requested-with': self.device.client_id,
+            'sec-fetch-site': 'none',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-user': '?1',
+            'sec-fetch-dest': 'document',
+            'accept-language': 'en-US,en;q=0.9',
+            'priority': 'u=0, i',
+        }
 
-        email, name = self.generate_user_info(domain)
-        if domain == 'hotmail.com':
-            email = email_client.username
+        params = [
+            ('entry_ctx', 'usl_email_first_signup_optional'),
+            ('entry_domain', 'auth.uber.com'),
+            ('type', '11'),
+            ('host_theme', 'light'),
+            ('type', '11'),
+        ]
+
+        await self.request_handler.get('GSU', 'https://account.uber.com/gsu', headers=headers, params=params)
+
+    async def create_account_hotmail(self, hotmail_account: str, hotmail_client_key: str, sleep: int = 5, apply_promo: bool = False) -> Optional[dict]:
+        """Create account using Hotmail for OTP verification"""
+        await self.device.initialize()
+
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+
+        parts = hotmail_account.split(':')
+        if len(parts) < 4:
+            print("[!] Invalid hotmail account format. Expected: email:password:token:uuid")
+            return None
+
+        hotmail_email = parts[0]
+
+        first_name = random.choice(FIRST_NAMES)
+        last_name = random.choice(LAST_NAMES)
+        name = f"{first_name} {last_name}"
+
+        print(f"\n[*] Creating account using hotmail: {hotmail_email}")
+        await self.get_session()
+
+        await asyncio.sleep(sleep)
+
+        session_id = await self.email_signup(hotmail_email)
+        if not session_id:
+            print("[!] Failed to initiate signup")
+            return None
+
+        print("[*] Waiting for OTP...")
+        await asyncio.sleep(sleep)
+
+        try:
+            hotmail_client = HotmailClient(
+                account=hotmail_account,
+                client_key=hotmail_client_key
+            )
+
+            otp_extractor = HotmailEmailOTPExtractor()
+            otp = await otp_extractor.get_otp_async(
+                email_client=hotmail_client,
+                target_email=hotmail_email,
+                service='uber',
+                timeout=60
+            )
+
+            if not otp:
+                print("[!] Failed to retrieve OTP")
+                return None
+        except BannedAccountException as e:
+            print(f"[!] Hotmail account is banned: {e}")
+            return None
+        except Exception as e:
+            print(f"[!] Error getting OTP: {e}")
+            return None
+
+        print(f"[✓] OTP received: {otp}")
+
+        # Submit OTP
+        response = await self.submit_otp(session_id, otp)
+        flow_type = response.get('form', {}).get('screens', [{}])[0].get('screenType', '')
+        session_id = response.get('inAuthSessionID', None)
+        if not session_id:
+            print("[!] Failed to verify OTP")
+            return None
+
+        await asyncio.sleep(sleep)
+
+        # if flow is phone number progressive, trigger skip phone number function
+        if flow_type == 'PHONE_NUMBER_PROGRESSIVE':
+            session_id = await self._skip_phone_number(session_id)
+            if not session_id:
+                print("[!] Failed to skip phone number")
+                return None
+
+        # Submit name
+        session_id = await self._submit_name(session_id, name)
+        if not session_id:
+            print("[!] Failed to submit name")
+            return None
+
+        await asyncio.sleep(sleep)
+
+        # Submit legal confirmation
+        session_id, auth_code = await self._submit_legal_confirmation(session_id)
+        if not session_id or not auth_code:
+            print("[!] Failed to submit legal confirmation")
+            return None
+
+        await asyncio.sleep(sleep)
+
+        # Submit auth code and get final response
+        success, resp_json = await self._submit_auth_code(session_id, auth_code, hotmail_email, name)
+        if not success:
+            print("[!] Failed to complete registration")
+            return None
+
+        # set cookies
+        self.cookies = resp_json['cookies']
+        for cookie in resp_json["cookies"]:
+            self.request_handler.session.cookies.set(
+                name=cookie["name"],
+                value=cookie["value"],
+                domain=cookie["domain"],
+                path=cookie.get("path", "/"),
+                secure=True
+            )
+
+        # get necessary data
+        self.auth_token = resp_json['oAuthInfo']['accessToken']
+        self.refresh_token = resp_json['oAuthInfo']['refreshToken']
+        self.sid = resp_json['cookies'][0]['value']
+        self.user_uuid = resp_json['userUUID']
+
+        await self.finish_signup(self.auth_token)
+
+        self.account_manager = AccountManager(self.request_handler, self.device, self.sid, self.auth_token, self.user_uuid)
+
+        if apply_promo:
+            await self.account_manager.apply_promo(config['promos']['promo_code'])
+
+        print("[✓] Account created successfully!")
+
+        return resp_json, flow_type
+
+    async def create_account(self, email: str, imap_config: dict, sleep: int = 5, apply_promo: bool = False) -> Optional[dict]:
+        await self.device.initialize()
+
+        with open('config.json', 'r') as f:
+            config = json.load(f)   
+
+        first_name = random.choice(FIRST_NAMES)
+        last_name = random.choice(LAST_NAMES)
+        name = f"{first_name} {last_name}"
 
         print(f"\n[*] Creating account for: {email}")
+        await self.get_session()
+
+        await asyncio.sleep(sleep)
 
         session_id = await self.email_signup(email)
         if not session_id:
             print("[!] Failed to initiate signup")
             return None
 
-        if self.config.get('auto_get_otp', True):
-            print("[*] Waiting for OTP...")
-            await asyncio.sleep(5)
+        print("[*] Waiting for OTP...")
+        await asyncio.sleep(sleep)
 
+        try:
+            imap_client = IMAPClient(
+                username=imap_config['username'],
+                password=imap_config['password'],
+                server=imap_config.get('server', 'imap.gmail.com')
+            )
+            
             otp_extractor = EmailOTPExtractor()
-            otp = await otp_extractor.get_otp_async(email_client, email)
-        else:
-            otp = input(f"Please Enter OTP for {email}: ")
+            otp = await otp_extractor.get_otp_async(imap_client, email, timeout=60)
 
-        if not otp:
-            print("[!] Failed to retrieve OTP")
+            if not otp:
+                print("[!] Failed to retrieve OTP")
+                return None
+        except Exception as e:
+            print(f"[!] Error getting OTP: {e}")
             return None
 
         print(f"[✓] OTP received: {otp}")
 
-        session_id = await self.submit_otp(session_id, otp)
+        # Submit OTP
+        response = await self.submit_otp(session_id, otp)
+        flow_type = response.get('form', {}).get('screens', [{}])[0].get('screenType', '')
+        session_id = response.get('inAuthSessionID', None)
         if not session_id:
             print("[!] Failed to verify OTP")
             return None
 
-        success, auth_code, user_uuid = await self.complete_registration(email, name, session_id)
+        await asyncio.sleep(sleep)
+
+        # if flow is phone number progressive, trigger skip phone number function
+        if flow_type == 'PHONE_NUMBER_PROGRESSIVE':
+            session_id = await self._skip_phone_number(session_id)
+            if not session_id:
+                print("[!] Failed to skip phone number")
+                return None
+
+        # Submit name
+        session_id = await self._submit_name(session_id, name)
+        if not session_id:
+            print("[!] Failed to submit name")
+            return None
+
+        await asyncio.sleep(sleep)
+
+        # Submit legal confirmation
+        session_id, auth_code = await self._submit_legal_confirmation(session_id)
+        if not session_id or not auth_code:
+            print("[!] Failed to submit legal confirmation")
+            return None
+
+        await asyncio.sleep(sleep)
+
+        # Submit auth code and get final response
+        success, resp_json = await self._submit_auth_code(session_id, auth_code, email, name)
         if not success:
             print("[!] Failed to complete registration")
             return None
 
-        if self.config['promos'].get('auto_apply', False):
-            promo_code = self.config['promos'].get('promo_code', '')
-            if not promo_code:
-                print("[!] Promo code not provided")
 
-            success = await self._apply_promo_code(auth_code, user_uuid, promo_code)
-            if success:
-                print("[✓] Promo code applied successfully!")
-            else:
-                print("[!] Failed to apply promo code")
+        # set cookies
+        self.cookies = resp_json['cookies']
+        for cookie in resp_json["cookies"]:
+            self.request_handler.session.cookies.set(
+                name=cookie["name"],
+                value=cookie["value"],
+                domain=cookie["domain"],
+                path=cookie.get("path", "/"),
+                secure=True
+            )
+
+        # get necessary data
+        self.auth_token = resp_json['oAuthInfo']['accessToken']
+        self.refresh_token = resp_json['oAuthInfo']['refreshToken']
+        self.sid = resp_json['cookies'][0]['value']
+        self.user_uuid = resp_json['userUUID']
+
+        await self.finish_signup(self.auth_token)
+
+        self.account_manager = AccountManager(self.request_handler, self.device, self.sid, self.auth_token, self.user_uuid)
+
+        if apply_promo:
+            await self.account_manager.apply_promo(config['promos']['promo_code'])
 
         print("[✓] Account created successfully!")
-        self._save_account(email, name)
-        return email
+        
+        return resp_json, flow_type
 
-    def _save_account(self, email: str, name: str = ''):
-        with open('accounts.txt', 'a') as f:
-            f.write(f'{email}\n')
+async def process_single_hotmail_account(config: dict, idx: int, total: int, proxies_list: list, hotmail_accounts: list) -> dict:
+    if not hotmail_accounts:
+        print("[!] No hotmail accounts available")
+        return {
+            'success': False,
+            'email': 'N/A',
+            'error': 'No hotmail accounts available'
+        }
+
+    hotmail_account = hotmail_accounts.pop(0)
+    hotmail_email = hotmail_account.split(':')[0]
+
+    try:
+        hotmail_file = 'hotmail_accounts.txt'
+        if os.path.exists(hotmail_file):
+            with open(hotmail_file, 'r') as f:
+                lines = f.readlines()
+
+            with open(hotmail_file, 'w') as f:
+                for line in lines:
+                    if line.strip() != hotmail_account:
+                        f.write(line)
+
+            print(f"[✓] Removed {hotmail_email} from {hotmail_file}")
+    except Exception as e:
+        print(f"[!] Warning: Failed to remove account from file: {e}")
+
+    print(f"\n{'='*60}")
+    print(f"[*] Processing account {idx}/{total} using hotmail: {hotmail_email}")
+    print(f"{'='*60}")
+
+    assigned_proxy = None
+    if config.get('proxies_enabled', False) and proxies_list:
+        if len(proxies_list) > 0:
+            assigned_proxy = proxies_list.pop(random.randint(0, len(proxies_list) - 1))
+            print(f"[*] Assigned proxy to account {idx}: {assigned_proxy[:30]}...")
+            RequestHandler.remove_proxy_from_file(assigned_proxy)
+        else:
+            print(f"[!] No proxies left for account {idx}, proceeding without proxy")
+
+    generator = AccountGenerator(config, assigned_proxy=assigned_proxy)
+    hotmail_client_key = config.get('hotmail_client_key', '')
+
+    if not hotmail_client_key:
+        print("[!] hotmail_client_key not found in config.json")
+        return {
+            'success': False,
+            'email': hotmail_email,
+            'error': 'hotmail_client_key not configured'
+        }
+
+    try:
+        # Step 1: Create account using hotmail
+        response, flow_type = await generator.create_account_hotmail(
+            hotmail_account,
+            hotmail_client_key,
+            sleep=config.get('sleep', 5),
+            apply_promo=config['promos']['apply_promo']
+        )
+
+        if not response:
+            print(f"[!] Failed to create account using hotmail: {hotmail_email}")
+            return {
+                'success': False,
+                'email': hotmail_email,
+                'error': 'Account creation failed'
+            }
+
+        # Save Details
+        result_email = response.get('userProfile', {}).get('email', hotmail_email)
+        print(f"[✓] Successfully created Uber account for: {result_email}")
+        account_info = {
+            'email': result_email,
+            'hotmail_account': hotmail_account,
+            'flow_type': flow_type,
+            'timezone': generator.device.location_city,
+            'longitude': generator.device.longitude,
+            'latitude': generator.device.latitude,
+            'model': generator.device.model,
+            'phone_name': generator.device.phone_name,
+            'brand': generator.device.brand,
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        # save local data
+        if config.get('app_variant') == 'ubereats':
+            with open('genned/genned_accounts.json', 'r+') as f:
+                data = json.load(f)
+                data['accounts'].append(account_info)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=4)
+        elif config.get('app_variant') == 'postmates':
+            with open('genned/postmates_genned.json', 'r+') as f:
+                data = json.load(f)
+                data['accounts'].append(account_info)
+                f.seek(0)
+                f.truncate()
+                json.dump(data, f, indent=4)
+
+        # save data for production
+        account_info['auth_token'] = generator.auth_token
+        account_info['refresh_token'] = generator.refresh_token
+        account_info['cookies'] = generator.cookies
+
+        with open('genned/genned_accounts_production.json', 'r+') as f:
+            data = json.load(f)
+            data['accounts'].append(account_info)
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=4)
+
+        return {
+            'success': True,
+            'email': result_email,
+            'hotmail_account': hotmail_account,
+            'error': None
+        }
+    except Exception as e:
+        print(f"[!] Error processing {hotmail_email}: {e}")
+        return {
+            'success': False,
+            'email': hotmail_email,
+            'error': str(e)
+        }
+
+
+async def process_single_account(config: dict, idx: int, total: int, proxies_list: list) -> dict:
+    imap_config = config.get('imap', {})
+    domains = imap_config.get('domains', [])
+    
+    if not domains:
+        print("[!] No domains configured in config.json")
+        return {
+            'success': False,
+            'email': 'N/A',
+            'account_line': 'N/A',
+            'error': 'No domains configured'
+        }
+    
+    domain = random.choice(domains)
+    first_name = random.choice(FIRST_NAMES)
+    last_name = random.choice(LAST_NAMES)
+    email = f"{first_name.lower()}{last_name.lower()}{random.randint(1000, 9999)}@{domain}"
+    
+    print(f"\n{'='*60}")
+    print(f"[*] Processing account {idx}/{total}: {email}")
+    print(f"{'='*60}")
+    
+    assigned_proxy = None
+    if config.get('proxies_enabled', False) and proxies_list:
+        if len(proxies_list) > 0:
+            assigned_proxy = proxies_list.pop(random.randint(0, len(proxies_list) - 1))
+            print(f"[*] Assigned proxy to account {idx}: {assigned_proxy[:30]}...")
+            RequestHandler.remove_proxy_from_file(assigned_proxy)
+        else:
+            print(f"[!] No proxies left for account {idx}, proceeding without proxy")
+
+    generator = AccountGenerator(config, assigned_proxy=assigned_proxy)
+    
+    try:
+        # Step 1: Create account
+        response, flow_type = await generator.create_account(email, imap_config, sleep=config.get('sleep', 5), apply_promo=config['promos']['apply_promo'])
+        
+        if not response:
+            print(f"[!] Failed to create account for: {email}")
+            return {
+                'success': False,
+                'email': email,
+                'error': 'Account creation failed'
+            }
+        
+        # Save Details
+        result_email = response.get('userProfile', {}).get('email', email)
+        print(f"[✓] Successfully created Uber account for: {result_email}")
+        account_info = {
+            'email': result_email,
+            'flow_type': flow_type,
+            'timezone': generator.device.location_city,
+            'longitude': generator.device.longitude,
+            'latitude': generator.device.latitude,
+            'model': generator.device.model,
+            'phone_name': generator.device.phone_name,
+            'brand': generator.device.brand,
+            'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+
+        # save local data
+        with open('genned_accounts.json', 'r+') as f:
+            data = json.load(f)
+            data['accounts'].append(account_info)
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=4)
+
+        # save data for production
+        account_info['auth_token'] = generator.auth_token
+        account_info['refresh_token'] = generator.refresh_token
+        account_info['cookies'] = generator.cookies
+
+        with open('genned_accounts_production.json', 'r+') as f:
+            data = json.load(f)
+            data['accounts'].append(account_info)
+            f.seek(0)
+            f.truncate()
+            json.dump(data, f, indent=4)
+        
+        return {
+            'success': True,
+            'email': result_email,
+            'error': None
+        }
+    except Exception as e:
+        print(f"[!] Error processing {email}: {e}")
+        return {
+            'success': False,
+            'email': email,
+            'error': str(e)
+        }
+
+
+async def main():
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+
+    print("\n" + "="*60)
+    print("Account Type Selection")
+    print("="*60)
+    print("1. Catchall (using IMAP)")
+    print("2. Hotmail (using hotmail accounts)")
+    print("="*60)
+
+    account_type = input("Select account type (1 or 2): ").strip()
+
+    if account_type not in ['1', '2']:
+        print("[!] Invalid selection. Please choose 1 or 2.")
+        return
+
+    use_hotmail = (account_type == '2')
+
+    hotmail_accounts = []
+    if use_hotmail:
+        if not config.get('hotmail_client_key'):
+            print("[!] hotmail_client_key not found in config.json")
+            return
+
+        hotmail_file = 'hotmail_accounts.txt'
+        if not os.path.exists(hotmail_file):
+            print(f"[!] {hotmail_file} not found")
+            print(f"[!] Please create {hotmail_file} with hotmail accounts (one per line)")
+            print(f"[!] Format: email:password:token:uuid")
+            return
+
+        with open(hotmail_file, 'r') as f:
+            hotmail_accounts = [line.strip() for line in f.readlines() if line.strip()]
+
+        if not hotmail_accounts:
+            print(f"[!] No hotmail accounts found in {hotmail_file}")
+            return
+
+        print(f"[✓] Loaded {len(hotmail_accounts)} hotmail accounts")
+    else:
+        if 'imap' not in config:
+            print("[!] IMAP configuration not found in config.json")
+            return
+
+        imap_config = config['imap']
+        if not all(key in imap_config for key in ['username', 'password', 'domains']):
+            print("[!] IMAP configuration incomplete. Need username, password, and domains.")
+            return
+
+        if not imap_config['domains']:
+            print("[!] No domains configured in imap.domains")
+            return
+    
+    proxies_list = []
+    if config.get('proxies_enabled', False):
+        proxies_list = RequestHandler.load_proxies()
+        if proxies_list:
+            print(f'[✓] Loaded {len(proxies_list)} proxies from proxies.txt')
+        else:
+            print('[!] Proxies enabled but none loaded, proceeding without proxies')
+            config['proxies_enabled'] = False
+    
+    num_of_accounts_to_generate = input("Enter number of accounts to generate: ")
+
+    try:
+        num_of_accounts_to_generate = int(num_of_accounts_to_generate)
+        if num_of_accounts_to_generate <= 0:
+            print("[!] Invalid number. Must be greater than 0.")
+            return
+    except ValueError:
+        print("[!] Invalid input. Please enter a number.")
+        return
+
+    if use_hotmail and num_of_accounts_to_generate > len(hotmail_accounts):
+        print(f"[!] Warning: Only {len(hotmail_accounts)} hotmail accounts available for {num_of_accounts_to_generate} requested")
+        print(f"[!] Will generate {len(hotmail_accounts)} accounts")
+        num_of_accounts_to_generate = len(hotmail_accounts)
+
+    print(f"[*] Generating {num_of_accounts_to_generate} accounts")
+
+    if config.get('proxies_enabled', False):
+        if len(proxies_list) < num_of_accounts_to_generate:
+            print(f"[!] Warning: Only {len(proxies_list)} proxies available for {num_of_accounts_to_generate} accounts")
+            print(f"[!] Some accounts will be created without proxies")
+
+    print("[*] Starting account generation...\n")
+
+    # Process accounts in batches of 20
+    batch_size = 20
+    all_results = []
+
+    for batch_start in range(0, num_of_accounts_to_generate, batch_size):
+        batch_end = min(batch_start + batch_size, num_of_accounts_to_generate)
+        batch_num = (batch_start // batch_size) + 1
+        total_batches = (num_of_accounts_to_generate + batch_size - 1) // batch_size
+
+        print(f"\n{'='*60}")
+        print(f"[*] Processing Batch {batch_num}/{total_batches} (Accounts {batch_start + 1}-{batch_end})")
+        print(f"{'='*60}\n")
+
+        # Create tasks for this batch
+        if use_hotmail:
+            tasks = [
+                process_single_hotmail_account(config, idx, num_of_accounts_to_generate, proxies_list, hotmail_accounts)
+                for idx in range(batch_start + 1, batch_end + 1)
+            ]
+        else:
+            tasks = [
+                process_single_account(config, idx, num_of_accounts_to_generate, proxies_list)
+                for idx in range(batch_start + 1, batch_end + 1)
+            ]
+
+        print(f"[*] Running {len(tasks)} account creation tasks in parallel for this batch...")
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        all_results.extend(batch_results)
+
+        print(f"\n[✓] Batch {batch_num}/{total_batches} completed")
+        print(f"[*] {len([r for r in batch_results if isinstance(r, dict) and r.get('success')])} successful in this batch")
+    
+    successful_accounts = []
+    failed_accounts = []
+    
+    # Summary
+    print(f"\n{'='*60}")
+    print("[*] Account Generation Summary")
+    print(f"{'='*60}")
+    print(f"[✓] Successful: {len(successful_accounts)}")
+    print(f"[✗] Failed: {len(failed_accounts)}")
+    
+    if successful_accounts:
+        print("\n[✓] Successfully created accounts:")
+        for acc in successful_accounts:
+            print(f"  - {acc}")
+    
+    if failed_accounts:
+        print("\n[✗] Failed accounts:")
+        for acc in failed_accounts:
+            print(f"  - {acc}")
+
+if __name__ == '__main__':
+    asyncio.run(main())

@@ -11,8 +11,7 @@ import time
 
 class IMAPClient:
     DEFAULT_PORTS = {
-        'imap.gmail.com': 993,
-        'imap.zmailservice.com': 993
+        'imap.gmail.com': 993
     }
 
     def __init__(self, username: str, password: str, server: str = None):
@@ -241,3 +240,69 @@ class EmailOTPExtractor:
             service,
             timeout
         )
+
+# tests
+# get last otp from from gmail in config
+if __name__ == "__main__":
+    import json
+    import asyncio
+    
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+    
+    imap_config = config.get('imap', {})
+    
+    if not imap_config.get('username') or not imap_config.get('password'):
+        print("[!] IMAP credentials not found in config.json")
+        exit(1)
+    
+    imap_client = IMAPClient(
+        username=imap_config['username'],
+        password=imap_config['password'],
+        server=imap_config.get('server', 'imap.gmail.com')
+    )
+    
+    print(f"[*] Connecting to {imap_config.get('server', 'imap.gmail.com')}...")
+    
+    if not imap_client.connect():
+        print("[✗] Failed to connect to IMAP server")
+        exit(1)
+    
+    try:
+        imap_client.connection.select('inbox')
+        
+        status, data = imap_client.connection.search(None, 'SUBJECT', '"Welcome to Uber"')
+        
+        if status == 'OK' and data[0]:
+            email_ids = data[0].split()
+            if email_ids:
+                latest_email_id = email_ids[-1]
+                print(f"[*] Found {len(email_ids)} email(s) with subject 'Welcome to Uber'")
+                print(f"[*] Extracting OTP from latest email...")
+                
+                msg = imap_client.fetch_email(latest_email_id)
+                if msg:
+                    extractor = UberOTPExtractor()
+                    
+                    for part in msg.walk():
+                        content_type = part.get_content_type()
+                        
+                        if content_type == 'text/html':
+                            html_content = part.get_payload(decode=True)
+                            if html_content:
+                                html_str = html_content.decode('utf-8', errors='ignore')
+                                otp = extractor.extract(html_str)
+                                if otp:
+                                    print(f"\n[✓] Found OTP: {otp}")
+                                    break
+                    else:
+                        print(f"\n[!] No OTP found in email")
+                else:
+                    print(f"\n[!] Could not fetch email")
+            else:
+                print(f"\n[!] No emails found with subject 'Welcome to Uber'")
+        else:
+            print(f"\n[!] No emails found with subject 'Welcome to Uber'")
+    
+    finally:
+        imap_client.disconnect()

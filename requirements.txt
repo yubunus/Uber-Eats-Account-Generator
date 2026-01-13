@@ -1,5 +1,7 @@
 curl-cffi>=0.5.9
 beautifulsoup4>=4.12.0
+requests>=2.31.0
+cryptography>=41.0.0
 colorama>=0.4.6
 aiofiles>=23.0.0
 python-dotenv>=1.0.0

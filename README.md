@@ -1,129 +1,90 @@
 # Uber Eats Account Generator
 
-Generate Uber Eats Accounts using IMAP or Hotmail Emails using Mobile Packets
-by @yubunus on discord and telegram - nuunuu1923@gmail.com
+Automated Uber Eats account creation using mobile API simulation with IMAP or Hotmail email verification.
+
+by @yubunus on discord and telegram
 
 ## ⚠️ DISCLAIMER
 
 This project was initially built for my personal education, as I was studying mobile requests using mitmproxy, and python requests and automation vs a bigger corporation with higher end security and a multi-step authentication process. That being said, this project is not intended to be used whatsoever as it is against Ubers TOS, and it is purely and only for educational purposes.
 
-## IMPORTANT
+## 📋 Features
 
-Due to security and abuse prevention concerns, the modern updated version of this code which produces fully undetectable accounts is not available to be open sourced for free, as well as other custom variations with more features. If you are interested in purchasing a custom variation, please contact me on discord or telegram.
+- Automated account creation via mobile API endpoints
+- Two email verification methods: Gmail IMAP or Hotmail API
+- Android device spoofing with realistic fingerprints
+- Automatic OTP extraction from emails
+- Batch account generation
+- Proxy support with automatic rotation
+- Auto promo code application
+- Saves account credentials and tokens to JSON
 
-## 📋 Table of Contents
+## 📦 Requirements
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Hotmail Setup](#hotmail)
-- [License](#license)
+**Python 3.8+**
 
-<h2 id="features">🚀 Features</h2>
+Dependencies:
 
-- Generate accounts automatically using Gmail IMAP or Hotmail accounts
-- Batch account generation with progress tracking
-- Multi-domain support with random domain selection
-- Proxy support with multiple formats (ip:port, user:pass:ip:port, user:pass@ip:port)
-- Proxy cycling or random selection
-- Simulate Android or iOS device requests using mitmproxy intercepted packets
-- Extract OTP from emails automatically using IMAP and BeautifulSoup
-- Spoofed device fingerprints and data
-- Optional data persistence (cookies, device data, device info)
-- Automatic promo code application to new accounts
-
-<h2 id="requirements">📦 Requirements</h2>
-
-### System Requirements
-
-- Python 3.8 or higher
-
-### Python Dependencies
-
-```txt
+```
 curl-cffi>=0.5.9
 beautifulsoup4>=4.12.0
+requests>=2.31.0
+cryptography>=41.0.0
 colorama>=0.4.6
+aiofiles>=23.0.0
+python-dotenv>=1.0.0
 ```
 
-### Email Requirements
-
-- IMAP-enabled email account (Gmail with app password or Hotmail)
-
-<h2 id="installation">🛠️ Installation</h2>
-
-### 1. Clone the Repository
+## 🛠️ Installation
 
 ```bash
 git clone https://github.com/yubunus/Uber-Eats-Account-Generator.git
 cd Uber-Eats-Account-Generator
+pip install -r requirements.txt
 ```
 
-### 2. Install Dependencies
+## ⚙️ Configuration
 
-```bash
-python -m pip install -r requirements.txt
-```
-
-### 3. Configure Settings
-
-```bash
-nano config.json
-```
-
-<h2 id="configuration">⚙️ Configuration</h2>
-
-### config.json
+Edit `config.json`:
 
 ```json
 {
-  "device": "android",
-  "proxy_enabled": false,
-  "cycle_proxies": false,
+  "app_variant": "ubereats",
+  "proxies_enabled": true,
   "auto_get_otp": true,
-  "save_info": {
-    "cookies": false,
-    "device_data": false,
-    "device_info": true
-  },
+  "sleep": 3,
+  "hotmail_client_key": "your_hotmail007_key_here",
   "promos": {
-    "auto_apply": false,
-    "promo_code": "promo_code_here"
+    "apply_promo": false,
+    "promo_code": "PROMO123"
   },
   "imap": {
-    "username": "your_email@gmail.com",
+    "username": "youremail@gmail.com",
     "password": "your_app_password",
     "server": "imap.gmail.com",
-    "domains": ["yourdomain.com", "anotherdomain.com"]
+    "domains": ["domain1.com", "domain2.com"]
   }
 }
 ```
 
 ### Configuration Options
 
-| Option                  | Description                                | Default        |
-| ----------------------- | ------------------------------------------ | -------------- |
-| `device`                | Device type to simulate (android/ios)      | android        |
-| `proxy_enabled`         | Enable proxy usage                         | false          |
-| `cycle_proxies`         | Cycle through proxies vs random selection  | false          |
-| `auto_get_otp`          | Auto get OTP from emails, otherwise manual | true           |
-| `save_info.cookies`     | Save account cookies to file               | false          |
-| `save_info.device_data` | Save device data to file                   | false          |
-| `save_info.device_info` | Save device info to file                   | true           |
-| `promos.auto_apply`     | Automatically apply promo code             | false          |
-| `promos.promo_code`     | Promo code to apply to new accounts        | Required\*     |
-| `imap.username`         | Email for OTP retrieval                    | Required       |
-| `imap.password`         | Email app password                         | Required       |
-| `imap.server`           | IMAP server                                | imap.gmail.com |
-| `imap.domains`          | List of domains for account generation     | Required       |
-
-\*Required only if `promos.auto_apply` is enabled
+| Option               | Description                           | Default  |
+| -------------------- | ------------------------------------- | -------- |
+| `app_variant`        | "ubereats" or "postmates"             | ubereats |
+| `proxies_enabled`    | Use proxies from proxies.txt          | false    |
+| `auto_get_otp`       | Auto-extract OTP vs manual entry      | true     |
+| `sleep`              | Delay between requests (seconds)      | 3        |
+| `hotmail_client_key` | API key for Hotmail verification      | -        |
+| `promos.apply_promo` | Apply promo code to new accounts      | false    |
+| `promos.promo_code`  | Promo code to apply                   | -        |
+| `imap.username`      | Gmail for receiving OTPs              | required |
+| `imap.password`      | Gmail app password                    | required |
+| `imap.domains`       | Catchall domains for email generation | required |
 
 ### Proxy Setup
 
-Create `proxies.txt` in the project directory with one proxy per line:
+Create `proxies.txt` (one per line):
 
 ```
 192.168.1.1:8080
@@ -131,55 +92,51 @@ user:pass:192.168.1.2:8080
 user:pass@192.168.1.3:8080
 ```
 
-Supported formats: `ip:port`, `user:pass:ip:port`, `user:pass@ip:port`
+### Hotmail Setup
 
-<h2 id="usage">💻 Usage</h2>
+For Hotmail verification, create `hotmail_accounts.txt` (format: `email:password:token:uuid`):
 
-### Basic Usage
-
-```bash
-python cli.py
+```
+user@hotmail.com:password:token123:uuid-here
 ```
 
-### Menu Options
+Get accounts from providers like [hotmail007.com](https://hotmail007.com/) and add your client key to `config.json`.
 
-1. **Generate using IMAP**: Generates accounts using your Gmail IMAP
+## 💻 Usage
 
-   - Asks how many accounts to generate
-   - Randomly selects domain from your configured domains list
-   - Shows success/failure summary
+Run the main script:
 
-2. **Generate using Hotmail**: Generates accounts using Hotmail from `hotmailaccs.txt`
+```bash
+python main.py
+```
 
-   - Shows available Hotmail accounts
-   - Asks how many to use (0 for all)
-   - Shows success/failure summary
+You'll be prompted to:
 
-3. **Exit**: Safely exits the program
+1. Choose account type (IMAP catchall or Hotmail)
+2. Enter number of accounts to generate
 
-<h2 id="hotmail">Using Hotmail</h2>
+Accounts are processed in batches of 20 and saved to `genned/` directory.
 
-1. **Purchase Hotmail Accounts**
-   Buy Hotmail accounts from a provider such as [hotmail007.com](https://hotmail007.com/).
+### Output Files
 
-2. **Prepare `hotmailaccs.txt`**
-   Create a file named `hotmailaccs.txt` in the project directory:
+- `genned/genned_accounts.json` - Account info (email, device, location)
+- `genned/genned_accounts_production.json` - Full credentials (tokens, cookies)
+- `genned/postmates_genned.json` - Postmates accounts (if using postmates variant)
 
-   ```
-   user1@hotmail.com:password1
-   user2@hotmail.com:password2
-   ```
+## 🔍 How It Works
 
-3. **Run the Program**
-   ```bash
-   python cli.py
-   ```
-   Select **Generate using Hotmail** from the menu.
+1. **Device Initialization**: Generates realistic Android device profile with 100+ unique IDs
+2. **Session Setup**: Three-step device upsert process to register with Uber's backend
+3. **Email Signup**: Submits email address to initiate account creation
+4. **OTP Verification**: Automatically extracts 4-digit code from email
+5. **Account Completion**: Submits name, accepts terms, exchanges auth codes
+6. **Token Exchange**: OAuth PKCE flow with ES256 signing
+7. **Finalization**: Sets cookies and optionally applies promo codes
 
-<h2 id="license">📄 License</h2>
+## 📄 License
 
-This project is licensed under the **MIT License with Educational Use Clause** - see the [LICENSE](LICENSE) file for details.
+MIT License - Educational use only.
 
 ---
 
-**Remember**: The purpose of understanding these vulnerabilities is to build better, more secure systems. Always use this knowledge responsibly and ethically.
+**Note**: This tool demonstrates security research into mobile API authentication. Understanding these mechanisms helps build better security systems. Use responsibly and ethically.
