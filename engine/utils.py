@@ -1,4 +1,4 @@
-from curl_cffi import requests
+from curl_cffi import requests, CurlHttpVersion
 import requests as req
 from typing import Optional, Dict, List
 import json
@@ -132,13 +132,24 @@ class RequestHandler:
 
     async def get(self, name: str, url: str, headers: Dict=None, params: Dict=None) -> Optional[requests.Response]:
         try:
-            response = self.session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=30,
-                impersonate='chrome116',
-                )
+            try:
+                response = self.session.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=10,
+                    impersonate='chrome116',
+                    )
+            except:
+                print("Trying http1...")
+                response = self.session.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=30,
+                    impersonate='chrome116',
+                    http_version=CurlHttpVersion.V1_1,
+                    )
 
             if response.status_code == 200:
                 print(f'[✓] {name} request successful')
@@ -154,13 +165,25 @@ class RequestHandler:
 
     async def post(self, name: str, url: str, headers: Dict, data: Dict) -> Optional[requests.Response]:
         try:
-            response = self.session.post(
-                url,
-                headers=headers,
-                data=json.dumps(data, separators=(",", ":")),
-                timeout=30,
-                impersonate='chrome116',
-            )
+            # try curl cffi default request, if fails then switch to http1. some proxies dont support higher level http hence this block
+            try:
+                response = self.session.post(
+                    url,
+                    headers=headers,
+                    data=json.dumps(data, separators=(",", ":")),
+                    timeout=10,
+                    impersonate='chrome116',
+                )
+            except:
+                print("Trying http1...")
+                response = self.session.post(
+                    url,
+                    headers=headers,
+                    data=json.dumps(data, separators=(",", ":")),
+                    timeout=30,
+                    impersonate='chrome116',
+                    http_version=CurlHttpVersion.V1_1,
+                )
 
             if response.status_code == 200 or (response.status_code == 204 and name == 'Get UDI Fingerprint'):
                 print(f'[✓] {name} request successful')
